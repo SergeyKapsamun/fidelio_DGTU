@@ -1,6 +1,10 @@
 import { request, type ApiError } from "./pmsClient";
 import { endpoints, type QueryParam } from "./pmsEndpoints";
-import { extractCategoryPricePeriods, type PmsCategory } from "../dto/pmsBookingDto";
+import {
+  extractCategoryPricePeriods,
+  type PmsCategory,
+  type PmsObject,
+} from "../dto/pmsBookingDto";
 import { resolveCurrentJwtToken } from "../auth/chessAuth";
 
 type RequestCallbacks<T = unknown> = {
@@ -183,14 +187,14 @@ export const pmsApi = {
   },
 
   getObjects: (
-    params: RequestCallbacks = {}
+    params: RequestCallbacks<PmsObject[]> = {}
   ) => {
     const { ...callbacks } = params;
     return request({
       url: endpoints.objects(),
       errorMessage: "Не удалось получить список номеров",
       adapt: (payload) =>
-        resolveList(payload, ["rooms", "objects", "items", "data"]),
+        resolveList<PmsObject>(payload, ["rooms", "objects", "items", "data"]),
       ...callbacks,
     });
   },

@@ -24,6 +24,7 @@ export type Booking = {
   endKey: string;
   email?: string;
   bookingName?: string;
+  comment?: string;
   paymentDate?: string;
   paymentHref?: string;
   additionalPaymentLink?: string;

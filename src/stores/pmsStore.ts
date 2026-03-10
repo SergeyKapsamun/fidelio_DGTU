@@ -51,13 +51,13 @@ export const usePmsStore = defineStore("pms", () => {
   };
 
   const fetchObjects = async () => {
-    const result = await runWithState(
+    const result = await runWithState<PmsObject[]>(
       (callbacks) => pmsApi.getObjects({ ...callbacks }),
       (value) => (loading.value = value),
       (value) => (error.value = value)
     );
     objects.value = Array.isArray(result) ? result : null;
-    return result;
+    return objects.value;
   };
 
   const fetchBookings = async (

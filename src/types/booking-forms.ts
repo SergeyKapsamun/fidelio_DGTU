@@ -7,6 +7,7 @@ export type BookingForm = {
   dateFrom: string;
   dateTo: string;
   bookingName: string;
+  comment: string;
   clientFio: string;
   phone: string;
   email: string;

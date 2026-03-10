@@ -94,6 +94,7 @@
               <el-select
                 v-model="form.room"
                 :placeholder="texts.bookingDialog.placeholders.room"
+                filterable
                 :popper-class="popperClass"
                 size="large"
               >
@@ -179,7 +180,9 @@
       </section>
 
       <section class="booking-section">
-        <div class="section-title">{{ texts.bookingDialog.sectionCustomer }}</div>
+        <div class="section-title">
+          {{ texts.bookingDialog.sectionCustomer }}
+        </div>
         <div :class="styles.customerRow">
           <el-form-item
             :label="texts.bookingDialog.labels.clientFio"
@@ -218,6 +221,14 @@
             />
           </el-form-item>
         </div>
+        <el-form-item :label="texts.bookingDialog.labels.comment">
+          <el-input
+            v-model="form.comment"
+            type="textarea"
+            :placeholder="texts.bookingDialog.placeholders.comment"
+            :autosize="{ minRows: 3, maxRows: 6 }"
+          />
+        </el-form-item>
       </section>
 
       <section class="booking-section">
@@ -233,7 +244,9 @@
                 >
                   <el-input
                     v-model="guest.fullName"
-                    :placeholder="texts.bookingDialog.placeholders.guestFullName"
+                    :placeholder="
+                      texts.bookingDialog.placeholders.guestFullName
+                    "
                     :class="styles.fioInputFixed"
                     size="large"
                   />
@@ -242,7 +255,9 @@
                     type="date"
                     format="DD.MM.YYYY"
                     value-format="YYYY-MM-DD"
-                    :placeholder="texts.bookingDialog.placeholders.guestBirthDate"
+                    :placeholder="
+                      texts.bookingDialog.placeholders.guestBirthDate
+                    "
                     :popper-class="popperClass"
                     size="large"
                     :class="styles.guestDateInputFixed"
@@ -286,7 +301,9 @@
             </el-form-item>
           </el-col>
           <el-col :span="6" :xs="24">
-            <el-form-item :label="texts.bookingDialog.labels.prepaymentPercentage">
+            <el-form-item
+              :label="texts.bookingDialog.labels.prepaymentPercentage"
+            >
               <el-input-number
                 v-model="form.prepaymentPercentage"
                 :min="0"
@@ -321,13 +338,18 @@
                   :disabled="!form.paymentHref"
                   @click="copyPaymentHref"
                 >
-                  {{ form.paymentHref || texts.bookingDialog.placeholders.paymentHref }}
+                  {{
+                    form.paymentHref ||
+                    texts.bookingDialog.placeholders.paymentHref
+                  }}
                 </button>
               </div>
             </el-form-item>
           </el-col>
           <el-col :span="24">
-            <el-form-item :label="texts.bookingDialog.labels.additionalPaymentLink">
+            <el-form-item
+              :label="texts.bookingDialog.labels.additionalPaymentLink"
+            >
               <div :class="styles.additionalPaymentLinkRow">
                 <button
                   type="button"
@@ -340,42 +362,50 @@
                     texts.bookingDialog.placeholders.additionalPaymentLink
                   }}
                 </button>
-                <el-button
+                <button
                   v-if="shouldShowGenerateAdditionalPaymentLink"
-                  type="primary"
-                  plain
-                  size="large"
-                  :loading="additionalPaymentLinkLoading"
-                  :disabled="!canGenerateAdditionalPaymentLink"
+                  type="button"
+                  :class="styles.additionalPaymentLinkGenerate"
+                  :disabled="
+                    additionalPaymentLinkLoading ||
+                    !canGenerateAdditionalPaymentLink
+                  "
                   @click="generateAdditionalPaymentLink"
                 >
-                  {{ texts.bookingDialog.actions.generateAdditionalPaymentLink }}
-                </el-button>
+                  <span
+                    v-if="additionalPaymentLinkLoading"
+                    :class="styles.additionalPaymentLinkGenerateSpinner"
+                    aria-hidden="true"
+                  ></span>
+                  {{
+                    texts.bookingDialog.actions.generateAdditionalPaymentLink
+                  }}
+                </button>
               </div>
             </el-form-item>
           </el-col>
         </el-row>
       </section>
-
-      <div class="dialog-actions">
-        <el-button
-          type="primary"
-          size="large"
-          class="save-button"
-          :disabled="
-            !canEdit ||
-            hasDateConflict ||
-            !isClientInfoValid ||
-            !isArrivalDatePriced ||
-            !hasMinNights ||
-            !isClientTypePriceAvailable
-          "
-          @click="save"
-        >
-          {{ saveButtonLabel }}
-        </el-button>
-      </div>
     </el-form>
+
+    <div class="dialog-actions">
+      <el-button
+        type="primary"
+        size="large"
+        class="save-button"
+        :disabled="
+          !canEdit ||
+          hasDateConflict ||
+          !isClientInfoValid ||
+          !isArrivalDatePriced ||
+          !hasMinNights ||
+          !isClientTypePriceAvailable
+        "
+        @click="save"
+      >
+        {{ saveButtonLabel }}
+      </el-button>
+    </div>
   </el-dialog>
 </template>
 
@@ -469,6 +499,7 @@ const texts = {
       dateFrom: "Дата заезда",
       dateTo: "Дата выезда",
       clientFio: "ФИО заказчика",
+      comment: "Комментарий",
       phone: "Телефон",
       email: "Email",
       clientType: "Тип клиента",
@@ -488,6 +519,7 @@ const texts = {
       dateFrom: "Выберите дату",
       dateTo: "Выберите дату",
       clientFio: "Введите ФИО",
+      comment: "Введите комментарий",
       phone: "+7 (___) ___-__-__",
       email: "Введите email",
       guestFullName: "ФИО клиента",
@@ -570,6 +602,7 @@ const form = ref<BookingForm>({
   dateFrom: "",
   dateTo: "",
   clientFio: "",
+  comment: "",
   phone: "",
   email: "",
   clientType: "Гость",
@@ -590,7 +623,10 @@ const normalizePhoneDigits = (value: string) => {
   if (!digits) {
     return "";
   }
-  if (digits.length === 11 && (digits.startsWith("7") || digits.startsWith("8"))) {
+  if (
+    digits.length === 11 &&
+    (digits.startsWith("7") || digits.startsWith("8"))
+  ) {
     return digits.slice(1);
   }
   if (digits.startsWith("7") || digits.startsWith("8")) {
@@ -822,6 +858,7 @@ const syncForm = (booking: Booking | null) => {
     dateFrom,
     dateTo,
     clientFio: booking.name ?? "",
+    comment: booking.comment ?? "",
     phone: formatPhoneMask(booking.phone ?? ""),
     email: booking.email ?? "",
     clientType: booking.clientType?.trim() || "Гость",
@@ -1548,7 +1585,7 @@ const resolveSavedBookingId = (value: BookingForm["id"]) => {
 };
 
 const canGenerateAdditionalPaymentLink = computed(
-  () => canEdit.value && resolveSavedBookingId(form.value.id) !== null,
+  () => resolveSavedBookingId(form.value.id) !== null,
 );
 
 const shouldShowGenerateAdditionalPaymentLink = computed(
@@ -1867,6 +1904,64 @@ const save = async () => {
 .additionalPaymentLinkCopy:disabled {
   color: var(--text-muted);
   cursor: default;
+}
+
+.additionalPaymentLinkGenerate {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 16px;
+  border-radius: 10px;
+  border: 1px solid var(--accent);
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease,
+    opacity 0.15s ease;
+}
+
+.additionalPaymentLinkGenerate:hover:not(:disabled) {
+  background: var(--accent-soft);
+}
+
+.additionalPaymentLinkGenerate:disabled {
+  border-color: var(--border-subtle);
+  background: var(--surface-3);
+  color: var(--text-muted);
+  cursor: default;
+}
+
+.additionalPaymentLinkGenerateSpinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: additionalPaymentLinkGenerateSpin 0.7s linear infinite;
+}
+
+@keyframes additionalPaymentLinkGenerateSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .additionalPaymentLinkGenerate {
+    transition: none;
+  }
+
+  .additionalPaymentLinkGenerateSpinner {
+    animation: none;
+  }
 }
 
 @media (max-width: 768px) {
@@ -2251,5 +2346,4 @@ const save = async () => {
   background: var(--accent-soft);
   color: var(--text-primary);
 }
-
 </style>

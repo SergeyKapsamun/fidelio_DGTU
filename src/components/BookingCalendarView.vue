@@ -823,6 +823,7 @@ const applyFormToBooking = (booking: Booking, form: BookingForm) => {
   booking.total = Number(form.price) || 0;
   booking.paid = Number(form.paid) || 0;
   booking.email = form.email;
+  booking.comment = form.comment;
   booking.paymentDate = form.dateOfPayment;
   booking.paymentHref = form.paymentHref;
   booking.additionalPaymentLink = form.additionalPaymentLink;

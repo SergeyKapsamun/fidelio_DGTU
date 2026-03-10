@@ -1,6 +1,6 @@
 import type { Booking, BookingGuest, CalendarList } from "../types/booking-calendar";
 
-type PmsBooking = {
+export type PmsBooking = {
   booking_id?: number | string;
   id?: number | string;
   code?: string | null;
@@ -24,6 +24,7 @@ type PmsBooking = {
   prepayment_percentage?: string | number | null;
   linked_lead?: number | string | null;
   client_type?: string | null;
+  comment?: string | null;
   additional_place?: string | number | null;
   count_guest?: string | number | null;
   count_parking_plases?: string | number | null;
@@ -532,7 +533,13 @@ const buildCategoryNameMapFromLookup = (lookup?: LookupMap) => {
 };
 
 const getBookingCategoryId = (record: Record<string, unknown>) =>
-  pickIdValue(record, ["category_id", "categoryId", "room_type", "roomType"]);
+  pickIdValue(record, [
+    "category_id",
+    "categoryId",
+    "category",
+    "room_type",
+    "roomType",
+  ]);
 
 
 const extractGuestCount = (record: Record<string, unknown>) =>
@@ -748,8 +755,8 @@ const buildObjectLookup = (objects?: PmsObject[]) => {
   return map;
 };
 
-const buildLookupMap = (
-  items: unknown[] | null,
+const buildLookupMap = <T extends Record<string, unknown>>(
+  items: T[] | null | undefined,
   idKeys: string[],
   nameKeys: string[]
 ) => {
@@ -761,22 +768,21 @@ const buildLookupMap = (
     if (!item || typeof item !== "object") {
       return;
     }
-    const record = item as Record<string, unknown>;
-    const idKey = idKeys.find((key) => record[key] !== undefined);
+    const idKey = idKeys.find((key) => item[key] !== undefined);
     if (!idKey) {
       return;
     }
-    const id = record[idKey];
+    const id = item[idKey];
     const key = String(id);
-    const nameKey = nameKeys.find((key) => record[key]);
-    const name = nameKey ? String(record[nameKey]) : `#${id}`;
+    const nameKey = nameKeys.find((key) => item[key]);
+    const name = nameKey ? String(item[nameKey]) : `#${id}`;
     map.set(key, { id: id as string | number, name });
   });
   return map;
 };
 
-const buildReverseLookupMap = (
-  items: unknown[] | null | undefined,
+const buildReverseLookupMap = <T extends Record<string, unknown>>(
+  items: T[] | null | undefined,
   idKeys: string[],
   nameKeys: string[]
 ) => {
@@ -788,17 +794,16 @@ const buildReverseLookupMap = (
     if (!item || typeof item !== "object") {
       return;
     }
-    const record = item as Record<string, unknown>;
-    const idKey = idKeys.find((key) => record[key] !== undefined);
+    const idKey = idKeys.find((key) => item[key] !== undefined);
     if (!idKey) {
       return;
     }
-    const id = record[idKey];
+    const id = item[idKey];
     if (id === undefined || id === null) {
       return;
     }
     nameKeys.forEach((key) => {
-      const raw = record[key];
+      const raw = item[key];
       if (!raw) {
         return;
       }
@@ -870,17 +875,17 @@ const buildCalendarLists = ({
   bookings,
   lookups = {},
 }: {
-  categories?: unknown[] | null;
-  objects?: unknown[] | null;
-  bookings?: unknown[] | null;
+  categories?: PmsCategory[] | null;
+  objects?: PmsObject[] | null;
+  bookings?: PmsBooking[] | null;
   lookups?: BookingLookups;
 }): CalendarList[] => {
   const categoryLookup =
     lookups.categories ??
-    buildCategoryLookup(Array.isArray(categories) ? (categories as PmsCategory[]) : []);
+    buildCategoryLookup(Array.isArray(categories) ? categories : []);
   const objectLookup =
     lookups.objects ??
-    buildObjectLookup(Array.isArray(objects) ? (objects as PmsObject[]) : []);
+    buildObjectLookup(Array.isArray(objects) ? objects : []);
   const resolvedLookups: BookingLookups = {
     ...lookups,
     categories: categoryLookup,
@@ -921,13 +926,12 @@ const buildCalendarLists = ({
       if (!object || typeof object !== "object") {
         return;
       }
-      const record = object as Record<string, unknown>;
-      const objectId = getObjectId(record);
+      const objectId = getObjectId(object);
       if (objectId === undefined || objectId === null) {
         return;
       }
-      const objectName = getObjectName(record) || `Room ${objectId}`;
-      const corpse = getCorpseValue(record);
+      const objectName = getObjectName(object) || `Room ${objectId}`;
+      const corpse = getCorpseValue(object);
       const listId = corpse || "unknown";
       const listName = getCorpseLabel(corpse);
       const list = ensureList(String(listId), listName);
@@ -939,12 +943,11 @@ const buildCalendarLists = ({
         if (!category || typeof category !== "object") {
           return;
         }
-        const record = category as Record<string, unknown>;
-        const id = getCategoryId(record);
+        const id = getCategoryId(category);
         if (id === undefined || id === null) {
           return;
         }
-        const name = getCategoryName(record) || `Category ${id}`;
+        const name = getCategoryName(category) || `Category ${id}`;
         ensureList(String(id), name);
       });
     }
@@ -1022,7 +1025,7 @@ const buildCalendarLists = ({
             : `Room ${index + 1}`);
         item = ensureItem(list, fallbackItemId, fallbackItemName);
       }
-      item.bookings.push(toCalendarBooking(booking as PmsBooking, resolvedLookups));
+      item.bookings.push(toCalendarBooking(booking, resolvedLookups));
     });
   }
 
@@ -1041,14 +1044,12 @@ export const buildBookingCalendarViewData = ({
   objects,
   bookings,
 }: {
-  categories?: unknown[] | null;
-  objects?: unknown[] | null;
-  bookings?: unknown[] | null;
+  categories?: PmsCategory[] | null;
+  objects?: PmsObject[] | null;
+  bookings?: PmsBooking[] | null;
 }): BookingCalendarViewData => {
-  const categoriesList = Array.isArray(categories)
-    ? (categories as PmsCategory[])
-    : [];
-  const objectsList = Array.isArray(objects) ? (objects as PmsObject[]) : [];
+  const categoriesList = Array.isArray(categories) ? categories : [];
+  const objectsList = Array.isArray(objects) ? objects : [];
 
   const reverseLookups: BookingReverseLookups = {
     categoryIdByName: buildReverseLookupMap(
@@ -1059,14 +1060,14 @@ export const buildBookingCalendarViewData = ({
     objectIdByName: buildReverseLookupMap(
       objectsList,
       ["object_id", "room_id", "id"],
-      ["number", "name", "title", "room_name", "roomName"]
+      ["name", "number", "title", "room_name", "roomName"]
     ),
   };
 
   const categoryOptions = Array.from(
     new Set(
       categoriesList
-        .map((category) => getCategoryName(category as Record<string, unknown>))
+        .map((category) => getCategoryName(category))
         .filter(Boolean)
     )
   );
@@ -1078,8 +1079,8 @@ export const buildBookingCalendarViewData = ({
       "category_name",
     ]),
     objects: buildLookupMap(objectsList, ["object_id", "room_id", "id"], [
-      "number",
       "name",
+      "number",
       "title",
       "room_name",
       "roomName",
@@ -1101,7 +1102,7 @@ export const buildBookingCalendarViewData = ({
       const status = pickValue(record, ["status", "state"]);
       return isRequestStatus(status);
     })
-    .map((booking) => toCalendarBooking(booking as PmsBooking, lookups));
+    .map((booking) => toCalendarBooking(booking, lookups));
 
   return {
     lists,
@@ -1198,6 +1199,7 @@ const toCalendarBooking = (
     "additional_link",
     "additionalLink",
   ]);
+  const comment = pickString(record, ["comment"]);
   const extraPlaceRaw = pickValue(record, [
     "additional_place",
     "additionalPlace",
@@ -1253,7 +1255,7 @@ const toCalendarBooking = (
   const categoryFromRoom = extractCategoryNameFromRoom(resolvedRoomName);
   const resolvedCategoryName = (() => {
     if (categoryName) {
-      return categoryName;
+      return resolveNameWithLookup(categoryName, lookups.categories, categoryId, "Category");
     }
     if (categoryFromRoom) {
       const normalized = normalizeCategoryName(categoryFromRoom);
@@ -1281,6 +1283,7 @@ const toCalendarBooking = (
     startKey: arrival.dateKey,
     endKey: departure.dateKey,
     email,
+    comment,
     paymentDate,
     paymentHref,
     additionalPaymentLink,
@@ -1341,6 +1344,7 @@ export const toPmsBookingPayload = (
     name: booking.bookingName ?? "",
     client_fio: booking.name ?? "",
     client_type: booking.clientType ?? "",
+    comment: booking.comment ?? "",
     phone: booking.phone ?? "",
     email: booking.email ?? "",
   };

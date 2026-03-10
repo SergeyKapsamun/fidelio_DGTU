@@ -7,6 +7,9 @@ import {
   buildUpdateBookingPayload,
   type BookingCalendarViewData,
   type BookingReverseLookups,
+  type PmsBooking,
+  type PmsCategory,
+  type PmsObject,
 } from "./pmsBookingDto";
 
 export type CalendarLoadParams = {
@@ -46,38 +49,37 @@ export const useBookingCalendarAdapter = (
         to: loadParams.to,
       }),
     ])) as [
-      unknown[] | null,
-      unknown[] | null,
+      PmsCategory[] | null,
+      PmsObject[] | null,
       unknown[] | Record<string, unknown> | null,
     ];
 
-    const bookings =
+    const bookings: PmsBooking[] | null =
       Array.isArray(bookingsPayload)
-        ? bookingsPayload
+        ? (bookingsPayload as PmsBooking[])
         : bookingsPayload && typeof bookingsPayload === "object"
-          ? (bookingsPayload as { bookings?: unknown[] }).bookings ?? null
+          ? (bookingsPayload as { bookings?: PmsBooking[] }).bookings ?? null
           : null;
 
     const roomsFromBookings =
       bookingsPayload && typeof bookingsPayload === "object"
-        ? (bookingsPayload as { rooms?: unknown[] }).rooms ?? null
+        ? (bookingsPayload as { rooms?: PmsObject[] }).rooms ?? null
         : null;
 
     const rooms = Array.isArray(roomsPayload) ? roomsPayload : [];
-    const roomsById = new Map<string, Record<string, unknown>>();
+    const roomsById = new Map<string, PmsObject>();
     rooms.forEach((item) => {
       if (!item || typeof item !== "object") {
         return;
       }
-      const record = item as Record<string, unknown>;
-      const id = record.id ?? record.object_id;
+      const id = item.id ?? item.object_id;
       if (id === undefined || id === null) {
         return;
       }
-      roomsById.set(String(id), record);
+      roomsById.set(String(id), item);
     });
 
-    const objects = Array.isArray(roomsFromBookings)
+    const objects: PmsObject[] | null = Array.isArray(roomsFromBookings)
       ? roomsFromBookings
           .map((item) => {
             if (!item || typeof item !== "object") {
@@ -93,9 +95,9 @@ export const useBookingCalendarAdapter = (
             if (fromRooms) {
               Object.assign(merged, fromRooms);
             }
-            return merged;
+            return merged as PmsObject;
           })
-          .filter(Boolean)
+          .filter((item): item is PmsObject => Boolean(item))
       : roomsPayload;
 
     return buildBookingCalendarViewData({
