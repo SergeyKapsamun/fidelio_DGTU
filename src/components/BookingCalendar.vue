@@ -211,6 +211,13 @@ import type {
   CalendarList,
   StatusOption,
 } from "../types/booking-calendar";
+import {
+  extractBookingTime,
+  formatBookingUiDateTime,
+  formatBookingUiDateTimeFromParts,
+  normalizeBookingDateKey,
+  normalizeBookingDateTimeValue,
+} from "../utils/bookingDateTime";
 
 type DayItem = {
   key: string;
@@ -435,17 +442,11 @@ const formatDateKey = (date: Date) => {
 };
 
 const formatDateTime = (dateKey: string, time: string) => {
-  const [year, month, day] = dateKey.split("-");
-  return `${day}.${month}.${year} ${time}`;
+  return formatBookingUiDateTimeFromParts(dateKey, time);
 };
 
-const extractTime = (value: string, fallback: string) => {
-  const match = value.match(/(\d{2}):(\d{2})/);
-  if (!match) {
-    return fallback;
-  }
-  return `${match[1]}:${match[2]}`;
-};
+const extractTime = (value: string, fallback: string) =>
+  extractBookingTime(value, fallback);
 
 const days = computed<DayItem[]>(() => {
   const result: DayItem[] = [];
@@ -610,6 +611,18 @@ const parseDateKey = (dateKey: string) => {
   const month = Number(monthStr);
   const day = Number(dayStr);
   return new Date(year, month - 1, day);
+};
+
+const normalizeBookingRange = (dateFrom: string, dateTo: string) => {
+  const startDateTime = normalizeBookingDateTimeValue(dateFrom);
+  const endDateTime = normalizeBookingDateTimeValue(dateTo);
+  if (startDateTime && endDateTime) {
+    if (startDateTime <= endDateTime) {
+      return { startDateTime, endDateTime };
+    }
+    return { startDateTime: endDateTime, endDateTime: startDateTime };
+  }
+  return { startDateTime, endDateTime };
 };
 
 const getBookingStyle = (booking: Booking | null | undefined) => {
@@ -990,37 +1003,24 @@ const applyBookingForm = (booking: Booking, form: BookingForm) => {
   booking.guestList = (form.guestList ?? []).slice(0, booking.guests);
   booking.extraPlace = Boolean(form.extraPlace);
 
-  const dateFrom = form.dateFrom;
-  const dateTo = form.dateTo;
-  let startKey = booking.startKey;
-  let endKey = booking.endKey;
-
-  if (dateFrom && dateTo) {
-    if (dateFrom <= dateTo) {
-      startKey = dateFrom;
-      endKey = dateTo;
-    } else {
-      startKey = dateTo;
-      endKey = dateFrom;
-    }
-  } else {
-    if (dateFrom) {
-      startKey = dateFrom;
-    }
-    if (dateTo) {
-      endKey = dateTo;
-    }
-  }
-  const checkInTime = extractTime(booking.checkIn, "00:00");
-  const checkOutTime = extractTime(booking.checkOut, "00:00");
-
+  const normalized = normalizeBookingRange(form.dateFrom, form.dateTo);
+  const startDateTime =
+    normalized.startDateTime ||
+    normalizeBookingDateTimeValue(booking.checkIn) ||
+    normalizeBookingDateTimeValue(booking.startKey);
+  const endDateTime =
+    normalized.endDateTime ||
+    normalizeBookingDateTimeValue(booking.checkOut) ||
+    normalizeBookingDateTimeValue(booking.endKey);
+  const startKey = normalizeBookingDateKey(startDateTime) || booking.startKey;
+  const endKey = normalizeBookingDateKey(endDateTime) || booking.endKey;
   booking.startKey = startKey;
   booking.endKey = endKey;
-  if (startKey) {
-    booking.checkIn = formatDateTime(startKey, checkInTime);
+  if (startDateTime) {
+    booking.checkIn = formatBookingUiDateTime(startDateTime);
   }
-  if (endKey) {
-    booking.checkOut = formatDateTime(endKey, checkOutTime);
+  if (endDateTime) {
+    booking.checkOut = formatBookingUiDateTime(endDateTime);
   }
 };
 

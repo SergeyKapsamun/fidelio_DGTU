@@ -1,4 +1,9 @@
 import type { Booking, BookingGuest, CalendarList } from "../types/booking-calendar";
+import {
+  formatBookingUiDateTime,
+  normalizeBookingDateKey,
+  normalizeBookingDateTimeValue,
+} from "../utils/bookingDateTime";
 
 export type PmsBooking = {
   booking_id?: number | string;
@@ -346,91 +351,10 @@ export const extractCategoryPricePeriods = (
   return periods;
 };
 
-const parseDateParts = (value: string) => {
-  const trimmed = value.trim();
-  if (!trimmed) {
-    return null;
-  }
-  let datePart = trimmed;
-  let timePart = "";
-  if (trimmed.includes("T")) {
-    const [date = "", time = ""] = trimmed.split("T");
-    datePart = date;
-    timePart = time ?? "";
-  } else if (trimmed.includes(" ")) {
-    const [date = "", time = ""] = trimmed.split(" ");
-    datePart = date;
-    timePart = time ?? "";
-  }
-  const isoMatch = datePart.match(/(\d{4})-(\d{1,2})-(\d{1,2})/);
-  if (isoMatch) {
-    const [, year, month, day] = isoMatch;
-    if (!year || !month || !day) {
-      return null;
-    }
-    return {
-      year,
-      month,
-      day,
-      time: timePart,
-    };
-  }
-  const ruMatch = datePart.match(/(\d{1,2})\.(\d{1,2})\.(\d{4})/);
-  if (ruMatch) {
-    const [, day, month, year] = ruMatch;
-    if (!year || !month || !day) {
-      return null;
-    }
-    return {
-      year,
-      month,
-      day,
-      time: timePart,
-    };
-  }
-  const slashIsoMatch = datePart.match(/(\d{4})\/(\d{1,2})\/(\d{1,2})/);
-  if (slashIsoMatch) {
-    const [, year, month, day] = slashIsoMatch;
-    if (!year || !month || !day) {
-      return null;
-    }
-    return {
-      year,
-      month,
-      day,
-      time: timePart,
-    };
-  }
-  const slashRuMatch = datePart.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
-  if (slashRuMatch) {
-    const [, day, month, year] = slashRuMatch;
-    if (!year || !month || !day) {
-      return null;
-    }
-    return {
-      year,
-      month,
-      day,
-      time: timePart,
-    };
-  }
-  return null;
-};
-
 const formatUiDateTime = (value?: string | null) => {
-  if (!value) {
-    return { dateKey: "", ui: "" };
-  }
-  const parts = parseDateParts(String(value));
-  if (!parts) {
-    return { dateKey: "", ui: "" };
-  }
-  const month = parts.month.padStart(2, "0");
-  const day = parts.day.padStart(2, "0");
-  const time = parts.time ? parts.time.slice(0, 5) : "00:00";
   return {
-    dateKey: `${parts.year}-${month}-${day}`,
-    ui: `${day}.${month}.${parts.year} ${time}`,
+    dateKey: normalizeBookingDateKey(value),
+    ui: formatBookingUiDateTime(value),
   };
 };
 
@@ -1293,8 +1217,12 @@ const toCalendarBooking = (
   };
 };
 
-const buildDateKeyFromUi = (value: string | undefined) =>
-  value ? formatUiDateTime(value).dateKey : "";
+const buildDateTimeValueFromUi = (
+  value: string | undefined,
+  fallbackDateKey?: string,
+) =>
+  normalizeBookingDateTimeValue(value) ||
+  normalizeBookingDateTimeValue(fallbackDateKey);
 
 export const toPmsBookingPayload = (
   booking: Booking,
@@ -1311,8 +1239,8 @@ export const toPmsBookingPayload = (
     (Number.isFinite(Number(categoryName)) ? Number(categoryName) : categoryName) ??
     null;
 
-  const dateFrom = booking.startKey || buildDateKeyFromUi(booking.checkIn);
-  const dateTo = booking.endKey || buildDateKeyFromUi(booking.checkOut);
+  const dateFrom = buildDateTimeValueFromUi(booking.checkIn, booking.startKey);
+  const dateTo = buildDateTimeValueFromUi(booking.checkOut, booking.endKey);
   const parkingPlaces = Math.max(0, Math.round(toNumber(booking.parkingPlaces, 0)));
   const guestList = Array.isArray(booking.guestList) ? booking.guestList : [];
   const guestCount = Math.max(

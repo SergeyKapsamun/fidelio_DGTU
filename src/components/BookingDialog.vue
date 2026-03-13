@@ -146,9 +146,9 @@
             <el-form-item :label="texts.bookingDialog.labels.dateFrom">
               <el-date-picker
                 v-model="dateRange"
-                type="daterange"
-                format="DD.MM.YYYY"
-                value-format="YYYY-MM-DD"
+                type="datetimerange"
+                format="DD.MM.YYYY HH:mm"
+                value-format="YYYY-MM-DD HH:mm:ss"
                 range-separator="—"
                 :start-placeholder="texts.bookingDialog.placeholders.dateFrom"
                 :end-placeholder="texts.bookingDialog.placeholders.dateTo"
@@ -427,6 +427,11 @@ import type {
   BookingGuest,
   CalendarList,
 } from "../types/booking-calendar";
+import {
+  normalizeBookingDateKey,
+  normalizeBookingDateTimeValue,
+  toBookingDate,
+} from "../utils/bookingDateTime";
 
 type Booking = CalendarBooking;
 
@@ -686,84 +691,10 @@ const close = () => {
   updateVisible(false);
 };
 
-const extractTime = (value: string, fallback: string) => {
-  const match = value.match(/(\d{2}):(\d{2})/);
-  if (!match) {
-    return fallback;
-  }
-  return `${match[1]}:${match[2]}`;
-};
+const normalizeDateKey = (value: string) => normalizeBookingDateKey(value);
 
-const toDateTimeLocal = (dateKey: string, time: string) => `${dateKey}T${time}`;
-
-const normalizeDateKey = (value: string) => {
-  const trimmed = String(value ?? "").trim();
-  if (!trimmed) {
-    return "";
-  }
-  const isoMatch = trimmed.match(/(\d{4})-(\d{1,2})-(\d{1,2})/);
-  if (isoMatch) {
-    const [, year, month, day] = isoMatch;
-    if (!year || !month || !day) {
-      return "";
-    }
-    return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
-  }
-  const ruMatch = trimmed.match(/(\d{1,2})\.(\d{1,2})\.(\d{4})/);
-  if (ruMatch) {
-    const [, day, month, year] = ruMatch;
-    if (!year || !month || !day) {
-      return "";
-    }
-    return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
-  }
-  const slashIsoMatch = trimmed.match(/(\d{4})\/(\d{1,2})\/(\d{1,2})/);
-  if (slashIsoMatch) {
-    const [, year, month, day] = slashIsoMatch;
-    if (!year || !month || !day) {
-      return "";
-    }
-    return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
-  }
-  const slashRuMatch = trimmed.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
-  if (slashRuMatch) {
-    const [, day, month, year] = slashRuMatch;
-    if (!year || !month || !day) {
-      return "";
-    }
-    return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
-  }
-  return "";
-};
-
-const normalizeDateTimeValue = (value: string) => {
-  const trimmed = String(value ?? "").trim();
-  if (!trimmed) {
-    return "";
-  }
-  if (/^\d{4}-\d{2}-\d{2}/.test(trimmed)) {
-    const normalized = trimmed.replace("T", " ");
-    const timeMatch = normalized.match(/(\d{2}):(\d{2})(?::(\d{2}))?/);
-    if (!timeMatch) {
-      return `${normalized} 00:00:00`;
-    }
-    const seconds = timeMatch[3] ?? "00";
-    return normalized.replace(
-      /(\d{2}):(\d{2})(?::\d{2})?/,
-      `${timeMatch[1]}:${timeMatch[2]}:${seconds}`,
-    );
-  }
-  const ruMatch = trimmed.match(
-    /(\d{2})\.(\d{2})\.(\d{4})(?:\s+(\d{2}):(\d{2})(?::(\d{2}))?)?/,
-  );
-  if (ruMatch) {
-    const hours = ruMatch[4] ?? "00";
-    const minutes = ruMatch[5] ?? "00";
-    const seconds = ruMatch[6] ?? "00";
-    return `${ruMatch[3]}-${ruMatch[2]}-${ruMatch[1]} ${hours}:${minutes}:${seconds}`;
-  }
-  return trimmed;
-};
+const normalizeDateTimeValue = (value: string) =>
+  normalizeBookingDateTimeValue(value);
 
 const normalizeGuestBirthDate = (value: string) => normalizeDateKey(value);
 
@@ -846,8 +777,12 @@ const syncForm = (booking: Booking | null) => {
   const resolvedStatus = booking.status ?? "";
   const resolvedCategory = booking.category ?? findCategoryByRoom(resolvedRoom);
   const resolvedBookingName = booking.bookingName?.trim() || booking.name || "";
-  const dateFrom = booking.startKey || normalizeDateKey(booking.checkIn);
-  const dateTo = booking.endKey || normalizeDateKey(booking.checkOut);
+  const dateFrom =
+    normalizeDateTimeValue(booking.checkIn) ||
+    normalizeDateTimeValue(booking.startKey);
+  const dateTo =
+    normalizeDateTimeValue(booking.checkOut) ||
+    normalizeDateTimeValue(booking.endKey);
   const guests = Math.max(1, Number(booking.guests) || 1);
 
   form.value = {
@@ -932,12 +867,8 @@ type DateRange = {
   end: Date;
 };
 
-const parseDateValue = (value: string) => {
-  const raw = String(value ?? "").trim();
-  if (!raw) {
-    return null;
-  }
-  const normalized = normalizeDateKey(raw);
+const parseDateOnlyValue = (value: string) => {
+  const normalized = normalizeDateKey(value);
   if (normalized) {
     const parts = normalized.split("-");
     if (parts.length === 3) {
@@ -953,20 +884,27 @@ const parseDateValue = (value: string) => {
       }
     }
   }
-  const parsed = new Date(raw);
-  if (Number.isNaN(parsed.getTime())) {
-    return null;
-  }
-  parsed.setHours(12, 0, 0, 0);
-  return parsed;
+  return null;
 };
 
 const normalizeDateRange = (
   startValue: string,
   endValue: string,
 ): DateRange | null => {
-  const start = parseDateValue(startValue);
-  const end = parseDateValue(endValue);
+  const start = parseDateOnlyValue(startValue);
+  const end = parseDateOnlyValue(endValue);
+  if (!start || !end) {
+    return null;
+  }
+  return start <= end ? { start, end } : { start: end, end: start };
+};
+
+const normalizeDateTimeRange = (
+  startValue: string,
+  endValue: string,
+): DateRange | null => {
+  const start = toBookingDate(startValue);
+  const end = toBookingDate(endValue);
   if (!start || !end) {
     return null;
   }
@@ -1283,6 +1221,23 @@ const resolveParkingPlacesPrice = (category: PmsCategory | null) => {
   return normalized;
 };
 
+const resolveAdditionalPlacePrice = (category: PmsCategory | null) => {
+  if (!category) {
+    return 0;
+  }
+  const record = category as Record<string, unknown>;
+  const rawValue =
+    record.price_additionally_place ??
+    record.priceAdditionalPlace ??
+    record.additional_place_price ??
+    record.additionalPlacePrice;
+  const normalized = normalizePriceNumber(rawValue);
+  if (normalized === null || normalized <= 0) {
+    return 0;
+  }
+  return normalized;
+};
+
 const resolvePriceType = (
   periods: PmsCategoryPricePeriod[],
   clientType?: string | null,
@@ -1402,12 +1357,16 @@ const calculateCategoryPrice = () => {
     paymentType.includes("номер") || paymentType.includes("room");
   const guestsMultiplier = payPerRoom ? 1 : guests;
   let total = rangePrice * guestsMultiplier;
+  const stayDays = Math.max(0, countNights(range.start, range.end));
+  const additionalPlacePrice = resolveAdditionalPlacePrice(category);
+  if (form.value.extraPlace && additionalPlacePrice > 0 && stayDays > 0) {
+    total += additionalPlacePrice * stayDays;
+  }
   const parkingPlaces = Math.max(
     0,
     Math.round(Number(form.value.parkingPlaces) || 0),
   );
   const parkingPlacesPrice = resolveParkingPlacesPrice(category);
-  const stayDays = Math.max(0, countNights(range.start, range.end));
   if (parkingPlaces > 0 && parkingPlacesPrice > 0 && stayDays > 0) {
     total += parkingPlaces * parkingPlacesPrice * stayDays;
   }
@@ -1490,15 +1449,10 @@ watch(
 );
 
 const getBookingDateRange = (booking: CalendarBooking): DateRange | null => {
-  const startKey = booking.startKey ?? "";
-  const endKey = booking.endKey ?? "";
-  if (!startKey || !endKey) {
-    return null;
-  }
-  const startTime = extractTime(booking.checkIn ?? "", "00:00");
-  const endTime = extractTime(booking.checkOut ?? "", "00:00");
-  const startValue = parseDateValue(toDateTimeLocal(startKey, startTime));
-  const endValue = parseDateValue(toDateTimeLocal(endKey, endTime));
+  const startValue =
+    toBookingDate(booking.checkIn ?? "") || toBookingDate(booking.startKey ?? "");
+  const endValue =
+    toBookingDate(booking.checkOut ?? "") || toBookingDate(booking.endKey ?? "");
   if (!startValue || !endValue) {
     return null;
   }
@@ -1550,7 +1504,7 @@ const isClientInfoValid = computed(() => {
 });
 
 const hasDateConflict = computed(() => {
-  const range = normalizeDateRange(form.value.dateFrom, form.value.dateTo);
+  const range = normalizeDateTimeRange(form.value.dateFrom, form.value.dateTo);
   if (!range) {
     return false;
   }
