@@ -599,6 +599,7 @@ const statusOptions = [
 ];
 const PHONE_MASK_DIGITS = 10;
 const additionalPaymentLinkLoading = ref(false);
+const guestListBuffer = ref<BookingGuest[]>([]);
 const form = ref<BookingForm>({
   id: 0,
   bookingName: "",
@@ -698,6 +699,27 @@ const normalizeDateTimeValue = (value: string) =>
 
 const normalizeGuestBirthDate = (value: string) => normalizeDateKey(value);
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  Boolean(value) && typeof value === "object";
+
+const pickRecordValue = (record: Record<string, unknown>, keys: string[]) => {
+  for (const key of keys) {
+    const value = record[key];
+    if (value !== undefined && value !== null) {
+      return value;
+    }
+  }
+  return undefined;
+};
+
+const pickRecordString = (record: Record<string, unknown>, keys: string[]) => {
+  const value = pickRecordValue(record, keys);
+  if (value === undefined || value === null) {
+    return "";
+  }
+  return String(value).trim();
+};
+
 const normalizeGuestPhone = (value: unknown): string => {
   if (typeof value === "number") {
     return Number.isFinite(value) ? String(value) : "";
@@ -727,6 +749,100 @@ const normalizeGuestPhone = (value: unknown): string => {
     }
   }
   return trimmed;
+};
+
+const parseRawGuestList = (value: unknown): unknown[] => {
+  if (Array.isArray(value)) {
+    return value;
+  }
+  if (typeof value !== "string") {
+    return [];
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return [];
+  }
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+};
+
+const normalizeRawGuestListItem = (value: unknown): BookingGuest | null => {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const fullName = pickRecordString(value, [
+    "full_name",
+    "fullName",
+    "name",
+    "fio",
+    "client_fio",
+    "clientFio",
+  ]);
+  const birthDate = normalizeGuestBirthDate(
+    pickRecordString(value, [
+      "birth_date",
+      "birthDate",
+      "date_of_birth",
+      "dateOfBirth",
+      "dob",
+    ]),
+  );
+  const phone = normalizeGuestPhone(
+    pickRecordValue(value, [
+      "phone",
+      "phone_number",
+      "tel",
+      "mobile",
+      "phones",
+      "phone_list",
+      "phoneList",
+    ]),
+  );
+  if (!fullName && !birthDate && !phone) {
+    return null;
+  }
+  return { fullName, birthDate, phone };
+};
+
+const toRoundedNumber = (value: unknown) => {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed || (trimmed.startsWith("[") && trimmed.endsWith("]"))) {
+      return null;
+    }
+    const numeric = Number(trimmed.replace(/\s+/g, ""));
+    return Number.isFinite(numeric) ? Math.round(numeric) : null;
+  }
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? Math.round(numeric) : null;
+};
+
+const normalizeBooleanLike = (value: unknown) => {
+  if (typeof value === "boolean") {
+    return value;
+  }
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value > 0 : false;
+  }
+  if (typeof value !== "string") {
+    return false;
+  }
+  const trimmed = value.trim().toLowerCase();
+  if (!trimmed) {
+    return false;
+  }
+  if (["1", "true", "yes", "да", "y"].includes(trimmed)) {
+    return true;
+  }
+  if (["0", "false", "no", "нет", "n"].includes(trimmed)) {
+    return false;
+  }
+  const numeric = Number(trimmed.replace(/\s+/g, ""));
+  return Number.isFinite(numeric) ? numeric > 0 : false;
 };
 
 const normalizeGuestList = (
@@ -764,6 +880,95 @@ const buildGuestDraftList = (
   return guests;
 };
 
+const syncGuestListBuffer = (source: BookingGuest[] | undefined) => {
+  const normalizedSource = Array.isArray(source)
+    ? source.map((guest) => ({
+        fullName: String(guest.fullName ?? "").trim(),
+        birthDate: normalizeGuestBirthDate(guest.birthDate ?? ""),
+        phone: normalizeGuestPhone(guest.phone),
+      }))
+    : [];
+  const nextBuffer = guestListBuffer.value.slice();
+  normalizedSource.forEach((guest, index) => {
+    nextBuffer[index] = guest;
+  });
+  guestListBuffer.value = nextBuffer;
+};
+
+const rebuildGuestDraftList = (guestCount: number) => {
+  syncGuestListBuffer(form.value.guestList);
+  form.value.guestList = buildGuestDraftList(guestListBuffer.value, guestCount);
+};
+
+const extractGuestListFromBooking = (booking: Booking) => {
+  const normalizedGuestList = normalizeGuestList(booking.guestList, -1);
+  if (normalizedGuestList.length) {
+    return normalizedGuestList;
+  }
+  if (!isRecord(booking)) {
+    return [];
+  }
+  const guestsRaw = pickRecordValue(booking, ["guests", "guest_list", "guestList"]);
+  return parseRawGuestList(guestsRaw)
+    .map(normalizeRawGuestListItem)
+    .filter((item): item is BookingGuest => Boolean(item));
+};
+
+const resolveGuestCountFromBooking = (
+  booking: Booking,
+  guestList: BookingGuest[],
+) => {
+  const explicitGuestCount = toRoundedNumber(booking.guests);
+  if (explicitGuestCount !== null) {
+    return Math.max(1, explicitGuestCount, guestList.length);
+  }
+  if (!isRecord(booking)) {
+    return Math.max(1, guestList.length);
+  }
+  const rawGuestCount = toRoundedNumber(
+    pickRecordValue(booking, [
+      "count_guest",
+      "count_guests",
+      "guest_count",
+      "guestCount",
+      "adults",
+      "adult",
+    ]),
+  );
+  return Math.max(1, rawGuestCount ?? 0, guestList.length);
+};
+
+const resolveExtraPlaceFromBooking = (booking: Booking) => {
+  if (typeof booking.extraPlace === "boolean") {
+    return booking.extraPlace;
+  }
+  if (!isRecord(booking)) {
+    return false;
+  }
+  return normalizeBooleanLike(
+    pickRecordValue(booking, ["additional_place", "additionalPlace", "extraPlace"]),
+  );
+};
+
+const normalizeFormGuests = (value: unknown) =>
+  Math.max(1, Number(value) || 1);
+
+const resolveFormGuestsFromBooking = (
+  totalGuests: number,
+  extraPlace: boolean,
+) => {
+  const normalizedTotalGuests = Math.max(1, totalGuests || 1);
+  if (!extraPlace) {
+    return normalizedTotalGuests;
+  }
+  return Math.max(1, normalizedTotalGuests - 1);
+};
+
+const resolveVisibleGuestCount = (
+  guests: number,
+  extraPlace: boolean,
+) => normalizeFormGuests(guests) + (extraPlace ? 1 : 0);
+
 const normalizePrepaymentPercentage = (value: unknown) => {
   const numeric = Math.round(Number(value) || 0);
   return Math.min(100, Math.max(0, numeric));
@@ -773,6 +978,8 @@ const syncForm = (booking: Booking | null) => {
   if (!booking) {
     return;
   }
+  const guestList = extractGuestListFromBooking(booking);
+  const extraPlace = resolveExtraPlaceFromBooking(booking);
   const resolvedRoom = booking.room ?? roomOptions.value[0] ?? "";
   const resolvedStatus = booking.status ?? "";
   const resolvedCategory = booking.category ?? findCategoryByRoom(resolvedRoom);
@@ -783,7 +990,10 @@ const syncForm = (booking: Booking | null) => {
   const dateTo =
     normalizeDateTimeValue(booking.checkOut) ||
     normalizeDateTimeValue(booking.endKey);
-  const guests = Math.max(1, Number(booking.guests) || 1);
+  const totalGuests = resolveGuestCountFromBooking(booking, guestList);
+  const guests = resolveFormGuestsFromBooking(totalGuests, extraPlace);
+  const visibleGuestCount = resolveVisibleGuestCount(guests, extraPlace);
+  guestListBuffer.value = buildGuestDraftList(guestList, visibleGuestCount);
 
   form.value = {
     id: booking.id,
@@ -807,9 +1017,9 @@ const syncForm = (booking: Booking | null) => {
     dateOfPayment: normalizeDateTimeValue(booking.paymentDate ?? ""),
     paymentHref: booking.paymentHref ?? "",
     additionalPaymentLink: booking.additionalPaymentLink ?? "",
-    guestList: buildGuestDraftList(booking.guestList, guests),
+    guestList: buildGuestDraftList(guestListBuffer.value, visibleGuestCount),
     category: resolvedCategory ?? "",
-    extraPlace: Boolean(booking.extraPlace),
+    extraPlace,
   };
 };
 
@@ -1351,7 +1561,7 @@ const calculateCategoryPrice = () => {
   if (rangePrice === null) {
     return null;
   }
-  const guests = Math.max(1, Number(form.value.guests) || 1);
+  const guests = normalizeFormGuests(form.value.guests);
   const paymentType = normalizeText(category.payment_type ?? "");
   const payPerRoom =
     paymentType.includes("номер") || paymentType.includes("room");
@@ -1374,10 +1584,16 @@ const calculateCategoryPrice = () => {
 };
 
 const calculatedPrice = computed(() => calculateCategoryPrice());
+const visibleGuestCount = computed(() =>
+  resolveVisibleGuestCount(form.value.guests, Boolean(form.value.extraPlace)),
+);
 const maxGuests = computed(() => {
   const room = resolveRoomByName(form.value.room ?? "");
   const capacity = resolveRoomCapacity(room);
-  return capacity && capacity > 0 ? capacity : undefined;
+  if (!capacity || capacity < 1) {
+    return undefined;
+  }
+  return capacity;
 });
 const maxParkingPlaces = computed(() => {
   if (
@@ -1408,12 +1624,13 @@ watch(
 
 watch(
   maxGuests,
-  (limit) => {
-    if (!limit || limit < 1) {
+  (max) => {
+    if (!max || max < 1) {
       return;
     }
-    if (Number(form.value.guests) > limit) {
-      form.value.guests = limit;
+    const currentGuests = normalizeFormGuests(form.value.guests);
+    if (currentGuests > max) {
+      form.value.guests = max;
     }
   },
   { immediate: true },
@@ -1422,15 +1639,20 @@ watch(
 watch(
   () => form.value.guests,
   (value) => {
-    const normalizedGuests = Math.max(1, Number(value) || 1);
+    const normalizedGuests = normalizeFormGuests(value);
     if (normalizedGuests !== value) {
       form.value.guests = normalizedGuests;
       return;
     }
-    form.value.guestList = buildGuestDraftList(
-      form.value.guestList,
-      normalizedGuests,
-    );
+    rebuildGuestDraftList(visibleGuestCount.value);
+  },
+  { immediate: true },
+);
+
+watch(
+  () => form.value.extraPlace,
+  () => {
+    rebuildGuestDraftList(visibleGuestCount.value);
   },
   { immediate: true },
 );
@@ -1652,7 +1874,7 @@ const save = async () => {
   if (!isClientInfoValid.value) {
     return;
   }
-  const guests = Math.max(1, Number(form.value.guests) || 1);
+  const guests = visibleGuestCount.value;
   const guestList = normalizeGuestList(form.value.guestList, guests);
   const parkingPlacesLimit = maxParkingPlaces.value;
   const parkingPlacesRaw = Math.max(
