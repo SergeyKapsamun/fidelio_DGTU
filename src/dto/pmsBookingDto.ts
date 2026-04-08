@@ -131,6 +131,8 @@ type BookingLookups = {
 
 export type BookingReverseLookups = {
   categoryIdByName?: Map<string, number | string>;
+  categoryIdByRoomName?: Map<string, number | string>;
+  categoryNameByRoomName?: Map<string, string>;
   objectIdByName?: Map<string, number | string>;
 };
 
@@ -408,6 +410,66 @@ const getObjectName = (record: Record<string, unknown>) =>
     "room_name",
     "roomName",
   ]);
+
+const getObjectCategoryId = (record: Record<string, unknown>) => {
+  const roomType = pickValue(record, ["room_type", "roomType"]);
+  if (isRecord(roomType)) {
+    const nestedId = pickIdValue(roomType, ["category_id", "id", "categoryId"]);
+    if (nestedId !== null) {
+      return nestedId;
+    }
+  } else {
+    const normalizedRoomType = normalizeId(roomType);
+    if (normalizedRoomType !== null) {
+      return normalizedRoomType;
+    }
+  }
+
+  const category = pickValue(record, ["category"]);
+  if (isRecord(category)) {
+    const nestedId = pickIdValue(category, ["category_id", "id", "categoryId"]);
+    if (nestedId !== null) {
+      return nestedId;
+    }
+  } else {
+    const normalizedCategory = normalizeId(category);
+    if (normalizedCategory !== null) {
+      return normalizedCategory;
+    }
+  }
+
+  return pickIdValue(record, ["category_id", "categoryId", "room_type_id", "roomTypeId"]);
+};
+
+const getObjectCategoryName = (record: Record<string, unknown>) => {
+  const roomType = pickValue(record, ["room_type", "roomType"]);
+  if (isRecord(roomType)) {
+    const nestedName = pickString(roomType, ["name", "title", "category_name", "categoryName"]);
+    if (nestedName) {
+      return nestedName;
+    }
+  } else if (typeof roomType === "string") {
+    const normalizedRoomType = roomType.trim();
+    if (normalizedRoomType) {
+      return normalizedRoomType;
+    }
+  }
+
+  const category = pickValue(record, ["category"]);
+  if (isRecord(category)) {
+    const nestedName = pickString(category, ["name", "title", "category_name", "categoryName"]);
+    if (nestedName) {
+      return nestedName;
+    }
+  } else if (typeof category === "string") {
+    const normalizedCategory = category.trim();
+    if (normalizedCategory) {
+      return normalizedCategory;
+    }
+  }
+
+  return pickString(record, ["category_name", "categoryName"]);
+};
 
 const getCorpseValue = (record: Record<string, unknown>) =>
   pickString(record, ["corpse", "building", "block"]);
@@ -741,6 +803,44 @@ const buildReverseLookupMap = <T extends Record<string, unknown>>(
   return map;
 };
 
+const buildCategoryLookupsByRoom = (objects?: PmsObject[] | null) => {
+  const categoryIdByRoomName = new Map<string, number | string>();
+  const categoryNameByRoomName = new Map<string, string>();
+
+  if (!Array.isArray(objects)) {
+    return {
+      categoryIdByRoomName,
+      categoryNameByRoomName,
+    };
+  }
+
+  objects.forEach((object) => {
+    if (!object || typeof object !== "object") {
+      return;
+    }
+    const record = object as Record<string, unknown>;
+    const roomName = getObjectName(record);
+    if (!roomName) {
+      return;
+    }
+
+    const categoryId = getObjectCategoryId(record);
+    if (categoryId !== null && !categoryIdByRoomName.has(roomName)) {
+      categoryIdByRoomName.set(roomName, categoryId);
+    }
+
+    const categoryName = getObjectCategoryName(record);
+    if (categoryName && !categoryNameByRoomName.has(roomName)) {
+      categoryNameByRoomName.set(roomName, categoryName);
+    }
+  });
+
+  return {
+    categoryIdByRoomName,
+    categoryNameByRoomName,
+  };
+};
+
 const buildOptionsFromLists = (lists: CalendarList[]) => {
   const roomSet = new Set<string>();
   lists.forEach((list) => {
@@ -974,6 +1074,7 @@ export const buildBookingCalendarViewData = ({
 }): BookingCalendarViewData => {
   const categoriesList = Array.isArray(categories) ? categories : [];
   const objectsList = Array.isArray(objects) ? objects : [];
+  const roomCategoryLookups = buildCategoryLookupsByRoom(objectsList);
 
   const reverseLookups: BookingReverseLookups = {
     categoryIdByName: buildReverseLookupMap(
@@ -981,6 +1082,8 @@ export const buildBookingCalendarViewData = ({
       ["category_id", "id"],
       ["name", "title", "category_name"]
     ),
+    categoryIdByRoomName: roomCategoryLookups.categoryIdByRoomName,
+    categoryNameByRoomName: roomCategoryLookups.categoryNameByRoomName,
     objectIdByName: buildReverseLookupMap(
       objectsList,
       ["object_id", "room_id", "id"],
@@ -1233,8 +1336,9 @@ export const toPmsBookingPayload = (
     lookups.objectIdByName?.get(roomName) ??
     (Number.isFinite(Number(roomName)) ? Number(roomName) : roomName) ??
     null;
-  const categoryName = booking.category ?? "";
+  const categoryName = lookups.categoryNameByRoomName?.get(roomName) ?? booking.category ?? "";
   const categoryId =
+    lookups.categoryIdByRoomName?.get(roomName) ??
     lookups.categoryIdByName?.get(categoryName) ??
     (Number.isFinite(Number(categoryName)) ? Number(categoryName) : categoryName) ??
     null;
